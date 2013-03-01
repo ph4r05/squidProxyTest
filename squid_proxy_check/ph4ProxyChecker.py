@@ -302,7 +302,7 @@ class ph4ProxyChecker(Thread):
         
         problem2send= ''
         timeReported=False
-        phaseCurTime = time.time()
+        phaseCurTime = 0
         phaseCurDatetime = datetime.datetime.now()
         phunt = proxyhunter(OutputProxy='proxylist.txt', GoodProxy='goodproxylist.txt', 
                 Verbose=False, TimeOut=int(self.proxytimeout), 
@@ -330,7 +330,7 @@ class ph4ProxyChecker(Thread):
             newHash = md5.hexdigest()
             
             # nothing to do, file is same or too fresh from last check
-            if newHash == prevHash and (time.time() - phaseCurTime) <= self.proxyrefresh:
+            if newHash == prevHash and (time.time() - phaseCurTime) <= float(self.proxyrefresh):
                 continue
             
             prevHash = newHash
