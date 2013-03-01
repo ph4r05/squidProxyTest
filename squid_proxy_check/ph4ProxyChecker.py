@@ -310,7 +310,6 @@ class ph4ProxyChecker(Thread):
             time.sleep(float(self.proxyrefresh))
             phaseCurTime = time.time()
             phaseCurDatetime = datetime.datetime.now()
-            print self.proxytimeout
             phunt = proxyhunter(OutputProxy='proxylist.txt', GoodProxy='goodproxylist.txt', 
                                 Verbose=False, TimeOut=int(self.proxytimeout), 
                                 Sitelist=[], RetryCount=int(self.proxyretry), 
