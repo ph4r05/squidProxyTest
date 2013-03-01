@@ -29,6 +29,7 @@ import os.path
 import os
 import re
 import copy
+import hashlib
 from threading import Thread
 from optparse import OptionParser
 import datetime
@@ -69,7 +70,8 @@ class ph4ProxyCheckerRunner(Thread):
         parser.add_option('--squid-reload-command', dest='squid_reload_command', default=None, help="Command to force Squid to refresh configuration")
         parser.add_option('--squid-path', dest='squid_path', default='/usr/sbin/squid', help="Path to squid binary [default : %default]")
         parser.add_option('--mail-test', dest='mailtest', default=None, help="Sends error mail to defined address")
-        parser.add_option('--mail-dest', dest='maildest', default=None, help="Destionation of mail warnings")
+        parser.add_option('--mail-dest', dest='maildest', default=None, help="Destination of mail warnings")
+        parser.add_option('--report-file', dest='reportfile', default=None, help="File to report proxy test results")
         
         # parse args now
         self.options, self.args = parser.parse_args()
@@ -85,6 +87,7 @@ class ph4ProxyCheckerRunner(Thread):
         self.checker.squid_path = self.options.squid_path
         self.checker.mailtest = self.options.mailtest
         self.checker.maildest = self.options.maildest
+        self.checker.reportfile = self.options.reportfile
     pass
 
     def run(self):
@@ -108,6 +111,7 @@ class ph4ProxyChecker(Thread):
     squid_path='/usr/sbin/squid'
     mailtest=None
     maildest=None
+    reportfile=None
     
     def __init__ (self):
         Thread.__init__(self)
@@ -241,7 +245,7 @@ class ph4ProxyChecker(Thread):
         
         '''At first we generate proxy file'''
         nn = datetime.datetime.now()
-        proxyString = "# Generated: [%s]\n" % (nn.strftime("%Y-%m-%d %H:%M")) 
+        proxyString = "# Generated: [%s] proxies: %d\n" % (nn.strftime("%Y-%m-%d %H:%M"), len(proxylist)) 
         for i,p in enumerate(proxylist):
             if len(p)==2:
                 proxyString += "cache_peer %s parent %s 0 round-robin no-query\n" % (p[0], p[1])
@@ -258,15 +262,12 @@ class ph4ProxyChecker(Thread):
         except Exception, e:
             print "Error during generating new configuration file"
             return None            
-        
-    def readProxyList(self):
+    
+    def readProxyList(self, proxylist):
         """
         Reads proxy list from proxy file
         """
-        proxylist = []   
         try:
-            preventstrokes = open(self.proxysrc, "r")
-            proxylist      = preventstrokes.readlines()
             count          = 0 
             while count < len(proxylist): 
                 proxylist[count] = proxylist[count].strip() 
@@ -303,19 +304,44 @@ class ph4ProxyChecker(Thread):
         timeReported=False
         phaseCurTime = time.time()
         phaseCurDatetime = datetime.datetime.now()
+        phunt = proxyhunter(OutputProxy='proxylist.txt', GoodProxy='goodproxylist.txt', 
+                Verbose=False, TimeOut=int(self.proxytimeout), 
+                Sitelist=[], RetryCount=int(self.proxyretry), 
+                TestUrl=self.proxyurl)
+        prevHash=None
+        prevConfigHash=None
         
         desc += "* Starting daemon on %s (sec: %s)\n" % (phaseStartDatetime.strftime("%Y-%m-%d %H:%M"), phaseStartTime)
         print desc
         while True:
-            time.sleep(float(self.proxyrefresh))
+            time.sleep(10)
+            proxylist = []
+            try:
+                preventstrokes = open(self.proxysrc, "r")
+                proxylist      = preventstrokes.readlines()
+                preventstrokes.close()
+            except Exception, e:
+                print "Error during reading proxy source file [%s]: " % self.proxysrc, e
+                traceback.print_exc()
+                continue
+            
+            md5 = hashlib.md5()
+            md5.update(str(proxylist))
+            newHash = md5.hexdigest()
+            
+            # nothing to do, file is same or too fresh from last check
+            if newHash == prevHash and (time.time() - phaseCurTime) <= self.proxyrefresh:
+                continue
+            
+            prevHash = newHash
             phaseCurTime = time.time()
             phaseCurDatetime = datetime.datetime.now()
-            phunt = proxyhunter(OutputProxy='proxylist.txt', GoodProxy='goodproxylist.txt', 
-                                Verbose=False, TimeOut=int(self.proxytimeout), 
-                                Sitelist=[], RetryCount=int(self.proxyretry), 
-                                TestUrl=self.proxyurl)
+            curProxyList = self.readProxyList(proxylist)
             
-            curProxyList = self.readProxyList()
+            outDat  = "* Starting check on %s (sec: %s)\n" % (phaseStartDatetime.strftime("%Y-%m-%d %H:%M"), phaseCurDatetime)
+            outDat += "* Proxies to check: %d\n" % (len(curProxyList))
+            cnOK=0
+            cnFail=0
             for i,p in enumerate(copy.deepcopy(curProxyList)):
                 tmpProxyName=''
                 if len(p)==2:
@@ -330,11 +356,35 @@ class ph4ProxyChecker(Thread):
                 cProxyRes = phunt.CoreFreshTester(tmpProxyName)
                 cProxyTime = time.time()-cProxyStart 
                 if cProxyRes:
-                    print "[*] %s%s%s \n \'--------------> Piece of Shit [%05.2f s]" % (phunt._red, tmpProxyName, phunt._reset, cProxyTime)
+                    cnFail+=1
+                    print     "[*] %s%s%s \n \'--------------> Piece of Shit [%05.2f s]" % (phunt._red, tmpProxyName, phunt._reset, cProxyTime)
+                    outDat += "[*] %s \n \'--------------> Piece of Shit [%05.2f s]\n" % (tmpProxyName, cProxyTime)
                     curProxyList.remove(p)
                 else:
-                    print "[*] %s%s%s \n \'--------------> We have a Good One [%05.2f s]" % (phunt._red, tmpProxyName, phunt._reset, cProxyTime)
+                    cnOK+=1
+                    outDat += "[*] %s \n \'--------------> We have a Good One [%05.2f s]\n" % (tmpProxyName, cProxyTime)
+                    print     "[*] %s%s%s \n \'--------------> We have a Good One [%05.2f s]" % (phunt._red, tmpProxyName, phunt._reset, cProxyTime)
             pass
+            
+            '''Dump check to file, if required'''
+            if self.reportfile!=None:
+                outDat += "Good proxies vs. shity proxies: %d vs. %d\n" % (cnOK, cnFail)
+                try:
+                    rH = open(self.reportfile, 'w')
+                    rH.write(outDat)
+                    rH.close()
+                except Exception, e:
+                    print "Cannot write to dump file [%s]" % self.reportfile, e
+                    traceback.print_exc()
+            
+            '''Do not reload config file unless it is really necessary'''
+            md5 = hashlib.md5()
+            md5.update(str(curProxyList))
+            newHash = md5.hexdigest()
+            if (newHash == prevConfigHash):
+                continue
+            else:
+                prevConfigHash = newHash
             
             '''Generate new squid file with new proxies'''
             cfgTxt = self.generateSquidConfigFromTemplate(curProxyList)
@@ -405,6 +455,8 @@ class ph4ProxyChecker(Thread):
             body = 'Main backup failed, exception thrown\nDesc: %s\nExc: %s\n' % (desc, exc)
             self.sendMail(self.maildest, "Problem with proxycheck", body)
         pass
+
+
 
 def main():
     print "\nSquid proxy checker v.%s by %s - Proxy Hunter and Tester Opensource engine\nA high-level cross-protocol proxy-hunter\n" % (__version__, __author__)
