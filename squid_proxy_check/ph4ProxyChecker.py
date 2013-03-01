@@ -1,7 +1,7 @@
 #!/usr/bin/python
 ##############################################################################
 #
-# NAME:        ph4BackupRunner.py
+# NAME:        ph4ProxyChecker.py
 #
 # COPYRIGHT:
 #         Copyright (c) 2012, Dusan (ph4r05) Klinec
@@ -12,11 +12,17 @@
 #
 # DESCRIPTION:
 #
-#         Backup script
+#         HTTP Proxy checker for SQUID daemon.
+#         Periodically checks proxy list file for changes and triggers proxy test
+#         on file change or if timer expired. 
+#            
+#         Generates new SQUID configuration consisting of working proxies,
+#         checks new configuration file and reloads SQUID daemon
+#         
 #
 # AUTHORS:     Dusan (ph4r05) Klinec
 #
-# CREATED:     23-Sep-2012
+# CREATED:     01-Mar-2013
 #
 # NOTES:
 #
