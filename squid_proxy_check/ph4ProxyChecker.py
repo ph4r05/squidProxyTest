@@ -344,7 +344,7 @@ class ph4ProxyChecker(Thread):
             phaseCurDatetime = datetime.datetime.now()
             curProxyList = self.readProxyList(proxylist)
             
-            outDat  = "* Starting check on %s (sec: %s)\n" % (phaseStartDatetime.strftime("%Y-%m-%d %H:%M"), phaseCurDatetime)
+            outDat  = "* Starting check on %s (sec: %s)\n" % (phaseCurDatetime, phaseCurTime)
             outDat += "* Proxies to check: %d\n" % (len(curProxyList))
             cnOK=0
             cnFail=0
